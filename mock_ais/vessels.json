@@ -1,0 +1,17 @@
+[
+  {
+    "mmsi": 205221000,
+    "ship_name": "ATLANTIC CARRIER",
+    "ship_type": 70
+  },
+  {
+    "mmsi": 244123456,
+    "ship_name": "TRIDENT_13",
+    "ship_type": 80
+  },
+  {
+    "mmsi": 563045700,
+    "ship_name": "ATLAS_OCEAN",
+    "ship_type": 70
+  }
+]
