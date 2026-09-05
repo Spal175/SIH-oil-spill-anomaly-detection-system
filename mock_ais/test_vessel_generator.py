@@ -184,11 +184,30 @@ class ScenarioModeTests(unittest.TestCase):
                 self.assertTrue(0.0 <= p.course <= 360.0)
                 self.assertTrue(0 <= p.heading <= 359)
 
-    def test_demo_tanker_a_passes_through_target_point(self):
+    def test_demo_tanker_a_approaches_spill_point(self):
         vessels = generate_vessels(replace(settings, mode="scenario", scenario_name="demo_01"))
         tanker = next(v for v in vessels if v.ship_name == "DEMO TANKER A")
-        points = [(p.latitude, p.longitude) for p in tanker.positions]
-        self.assertIn((38.5, -9.5), points)
+        nearest = min(
+            haversine_km(p.latitude, p.longitude, 38.5, -9.5)
+            for p in tanker.positions
+        )
+        # Closest approach to the demo spill (38.5, -9.5) is ~0.8 km.
+        self.assertGreater(nearest, 0.5)
+        self.assertLess(nearest, 1.0)
+
+    def test_scenario_start_time_makes_timestamps_deterministic(self):
+        vessels = generate_vessels(replace(settings, mode="scenario", scenario_name="demo_01"))
+        tanker = next(v for v in vessels if v.ship_name == "DEMO TANKER A")
+        closest = min(
+            tanker.positions,
+            key=lambda p: haversine_km(p.latitude, p.longitude, 38.5, -9.5),
+        )
+        # Fixed scenario start_time -> DEMO TANKER A reaches its closest
+        # approach ~12 min before the demo TIFF's embedded detection time.
+        self.assertEqual(
+            closest.timestamp,
+            datetime(2026, 9, 5, 9, 58, 0, tzinfo=timezone.utc),
+        )
 
     def test_ship_type_string_mapping(self):
         self.assertEqual(SHIP_TYPE_CODES["Tanker"], 80)

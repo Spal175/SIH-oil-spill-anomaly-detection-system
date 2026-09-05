@@ -171,9 +171,18 @@ in this data provider.
 
 A simple way to make the situation reproducible: reserve a segment of one
 vessel's route so the backend can use it as a known crossing location. In
-`demo_01.json`, `DEMO TANKER A` passes exactly through
-`(38.50, -9.50)` at its 9th trajectory point; that coordinate is chosen so
-the backend (not this mock) can relate it to later detections.
+`demo_01.json`, `DEMO TANKER A` passes within ~0.8 km of `(38.50, -9.50)`
+(the point encoded in the demo GeoTIFF `demo_01_oil_spill.tif`), reaching its
+closest approach at exactly `09:58:00Z` — 12 minutes before the TIFF's
+embedded acquisition/detection time `2026-09-05T10:10:00Z`. Those reproducible
+timestamps come from the scenario's top-level `start_time` field.
+
+Scenarios may declare a fixed `start_time` (ISO-8601 UTC) at the top level of
+the JSON file. When present, every vessel's position timestamps are anchored
+to that instant (instead of the wall-clock "now"), so the whole scenario is
+deterministic and can be aligned with a downstream oil-spill detection time.
+Scenarios without `start_time` keep the previous behaviour (timestamps start
+at the current UTC time).
 
 With `MOCK_UPDATE_INTERVAL=2` the tanker re-crosses its route about every half
 minute and every vessel fully restarts its loop within about a minute, so the

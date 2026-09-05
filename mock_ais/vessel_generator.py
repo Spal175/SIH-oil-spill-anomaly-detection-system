@@ -459,12 +459,39 @@ def _scenario_path(scenario_name: str) -> Path:
 
 def _load_scenario(scenario_name: str) -> List[Dict]:
     """Load the vessels of a JSON scenario from the scenarios/ directory."""
+    return list(_load_scenario_data(scenario_name)["vessels"])
+
+
+def _load_scenario_data(scenario_name: str) -> Dict:
+    """Load a whole scenario JSON document from the scenarios/ directory."""
     path = _scenario_path(scenario_name)
     if not path.exists():
         raise ValueError(f"scenario '{scenario_name}' not found at {path}")
     with open(path, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    return list(data["vessels"])
+        return json.load(fh)
+
+
+def _parse_scenario_start_time(data: Dict) -> datetime:
+    """Return the fixed scenario start time, or 'now' when the scenario does
+    not declare one.
+
+    A deterministic scenario sets ``start_time`` (ISO-8601, UTC) at the top
+    level so every vessel's position timestamps are reproducible and can be
+    aligned with an oil-spill detection time; otherwise timestamps start at
+    the current UTC time (rounded to the minute), as before.
+    """
+    raw = data.get("start_time")
+    if raw:
+        try:
+            start = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            return start
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"invalid scenario start_time '{raw}'; expected ISO-8601 UTC"
+            )
+    return datetime.now(timezone.utc).replace(second=0, microsecond=0)
 
 
 def _scenario_trajectory(
@@ -522,10 +549,11 @@ def _scenario_trajectory(
 
 def _build_scenario_vessels(cfg: Settings) -> List[VesselTrajectory]:
     """Load all vessels and trajectories of the configured scenario."""
-    start_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    data = _load_scenario_data(cfg.scenario_name)
+    start_time = _parse_scenario_start_time(data)
     return [
         _scenario_trajectory(entry, start_time, cfg.trajectory_step_seconds)
-        for entry in _load_scenario(cfg.scenario_name)
+        for entry in data["vessels"]
     ]
 
 
