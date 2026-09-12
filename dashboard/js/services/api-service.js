@@ -46,24 +46,12 @@ export async function getHealth() {
 }
 
 /**
- * POST /oil-spills/analyze
- * Uploads a SAR GeoTIFF and returns spill + candidate_vessels.
- *
- * @param {File} file         - GeoTIFF file object
- * @param {number} threshold  - detection threshold (0.0–1.0)
- * @param {number} minAreaPx  - minimum connected pixel area
- * @returns {Promise<{spill, candidate_vessels}>}
+ * GET /oil-spills
+ * Returns stored oil spills, most recent first (no attribution detail):
+ * [{ id, latitude, longitude, detected_at, confidence, area, crs, region_count, created_at }]
  */
-export async function analyzeSpill(file, threshold = 0.5, minAreaPx = 8) {
-  const form = new FormData();
-  form.append('file', file, file.name);
-  if (threshold !== null) form.append('threshold', String(threshold));
-  if (minAreaPx !== null) form.append('min_area_px', String(minAreaPx));
-
-  return request('/oil-spills/analyze', {
-    method: 'POST',
-    body: form,
-  });
+export async function getSpills() {
+  return request('/oil-spills');
 }
 
 /**

@@ -89,6 +89,8 @@ class OilSpill(Base):
     centroid_longitude: Mapped[float] = mapped_column(Double, nullable=False)
     area: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     confidence: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    crs: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    region_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     geometry_geojson: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -118,6 +120,7 @@ class AttributionResult(Base):
     time_difference_minutes: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     score: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

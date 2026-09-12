@@ -101,8 +101,9 @@ export class MapManager {
 
     if (this._vessels.has(mmsi)) {
       const v = this._vessels.get(mmsi);
-      // Smooth position update
-      v.marker.setLatLng(latlng);
+      // Smooth, speed-scaled movement instead of a hard jump
+      this._animateMarker(v, latlng, sog);
+      // Refresh heading arrow / selection styling
       v.marker.setIcon(this._vesselIcon(typeInfo, heading, shipName, false, v.selected));
       // Update trail
       v.positions.push(latlng);
@@ -131,8 +132,51 @@ export class MapManager {
         positions: [[latitude, longitude]],
         latestPos: pos,
         selected: false,
+        _animRaf: null,
+        _animStart: 0,
+        _animFrom: null,
+        _animTo: null,
+        _animDur: 0,
       });
     }
+  }
+
+  /**
+   * Slide a vessel marker from its current position to a new latlng.
+   * The animation takes roughly the time the vessel would need to cover the
+   * distance at its reported speed over ground (clamped to keep it snappy).
+   */
+  _animateMarker(v, latlng, sog) {
+    const from = v.marker.getLatLng();
+    const to = L.latLng(latlng);
+    const now = performance.now();
+
+    const distM = from.distanceTo(to);
+    const knots = Math.max(Number(sog) || 0, 5);
+    let dur = (distM / (knots * 0.514444)) * 1000;
+    dur = Math.min(Math.max(dur, 350), 4000);
+
+    v._animStart = now;
+    v._animFrom = from;
+    v._animTo = to;
+    v._animDur = dur;
+
+    const step = () => {
+      const t = Math.min((performance.now() - v._animStart) / v._animDur, 1);
+      const e = 1 - Math.pow(1 - t, 2); // ease-out: starts quick, settles gently
+      v.marker.setLatLng(new L.LatLng(
+        v._animFrom.lat + (v._animTo.lat - v._animFrom.lat) * e,
+        v._animFrom.lng + (v._animTo.lng - v._animFrom.lng) * e,
+      ));
+      if (t < 1) {
+        v._animRaf = requestAnimationFrame(step);
+      } else {
+        v._animRaf = null;
+      }
+    };
+
+    if (v._animRaf) cancelAnimationFrame(v._animRaf);
+    v._animRaf = requestAnimationFrame(step);
   }
 
   selectVessel(mmsi) {
@@ -270,6 +314,14 @@ export class MapManager {
 
     this._spills.set(spill.id, { marker, circle, data: spill, selected: false });
     this._map.panTo(latlng, { animate: true, duration: 0.6 });
+  }
+
+  removeSpill(spillId) {
+    const s = this._spills.get(spillId);
+    if (!s) return;
+    if (this._map.hasLayer(s.marker)) this._map.removeLayer(s.marker);
+    if (s.circle && this._map.hasLayer(s.circle)) this._map.removeLayer(s.circle);
+    this._spills.delete(spillId);
   }
 
   selectSpill(spillId) {

@@ -85,6 +85,51 @@ def test_get_spill_not_found(client):
     assert client.get("/oil-spills/does-not-exist").status_code == 404
 
 
+def test_list_spills_empty(client):
+    resp = client.get("/oil-spills")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_list_spills_returns_seeded(client):
+    seed = _seed()
+    resp = client.get("/oil-spills")
+    assert resp.status_code == 200, resp.text
+    items = resp.json()
+    assert len(items) == 1
+    item = items[0]
+    assert item["id"] == seed["spill_id"]
+    assert item["latitude"] == pytest.approx(38.5)
+    assert item["longitude"] == pytest.approx(-9.5)
+    assert item["confidence"] == pytest.approx(0.87)
+    assert item["detected_at"] is not None
+    assert "candidate_vessels" not in item
+
+
+def test_list_spills_most_recent_first(client):
+    from datetime import timedelta
+
+    with session_scope() as s:
+        repo = OilSpillRepository(s)
+        older = repo.create(
+            detected_at=T0,
+            centroid_latitude=38.5,
+            centroid_longitude=-9.5,
+        )
+        older.created_at = T0 + timedelta(minutes=1)
+        newer = repo.create(
+            detected_at=T0,
+            centroid_latitude=38.6,
+            centroid_longitude=-9.4,
+        )
+        newer.created_at = T0 + timedelta(minutes=2)
+        s.flush()
+    resp = client.get("/oil-spills")
+    assert resp.status_code == 200, resp.text
+    ids = [item["id"] for item in resp.json()]
+    assert ids == [newer.id, older.id]
+
+
 def test_get_spill_vessels(client):
     seed = _seed()
     resp = client.get(f"/oil-spills/{seed['spill_id']}/vessels")

@@ -203,6 +203,7 @@ class AttributionService:
                 "time_difference_minutes": r.get("time_difference_minutes"),
                 "score": r.get("score"),
                 "rank": r.get("rank"),
+                "evidence": r.get("evidence"),
             }
             for r in ranked
         ]

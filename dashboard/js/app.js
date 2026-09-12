@@ -8,7 +8,7 @@
 
 import {
   getHealth,
-  analyzeSpill,
+  getSpills,
   getSpillDetail,
   getSpillVessels,
   getVessel,
@@ -31,10 +31,10 @@ const state = {
   spills: new Map(),         // spillId -> { spill, candidate_vessels }
   selectedVesselMmsi: null,
   selectedSpillId: null,
-  selectedFile: null,
-  isAnalyzing: false,
   activeTrajectoryLayer: null,
   healthPollTimer: null,
+  spillPollTimer: null,
+  spillsSyncedOnce: false,
   sidebarThrottleTimer: null,
   pendingSidebarUpdates: new Set(),
 };
@@ -51,17 +51,19 @@ const dom = {
   btnToggleTrails: () => document.getElementById('btn-toggle-trails') || document.getElementById('toggle-trails') || document.querySelector('[data-action="toggle-trails"]'),
 
   // Backend & AIS status
-  backendDot: () => document.getElementById('backend-status-dot') || document.querySelector('.backend-status-dot') || document.getElementById('backend-dot'),
-  backendText: () => document.getElementById('backend-status-text') || document.querySelector('.backend-status-text') || document.getElementById('backend-status'),
+  backendDot: () => document.getElementById('api-dot') || document.getElementById('backend-status-dot') || document.querySelector('.backend-status-dot') || document.getElementById('backend-dot'),
+  backendText: () => document.getElementById('api-status-text') || document.getElementById('backend-status-text') || document.querySelector('.backend-status-text') || document.getElementById('backend-status'),
   backendBadge: () => document.getElementById('backend-badge') || document.querySelector('.backend-badge'),
 
   aisDot: () => document.getElementById('ais-status-dot') || document.querySelector('.ais-status-dot') || document.getElementById('ws-status-dot'),
   aisText: () => document.getElementById('ais-status-text') || document.querySelector('.ais-status-text') || document.getElementById('ws-status-text') || document.getElementById('ais-status'),
   aisBadge: () => document.getElementById('ais-badge') || document.querySelector('.ais-badge'),
 
-  vesselCount: () => document.getElementById('vessel-count') || document.getElementById('vessels-count') || document.querySelector('.vessel-count'),
-  msgsPerSec: () => document.getElementById('msgs-per-sec') || document.getElementById('msg-rate') || document.getElementById('ais-rate') || document.querySelector('.msgs-per-sec'),
-  spillCount: () => document.getElementById('spill-count') || document.getElementById('spills-count') || document.querySelector('.spill-count'),
+  vesselCount: () => document.getElementById('vessels-count') || document.getElementById('vessel-count') || document.getElementById('stat-vessels') || document.querySelector('.vessel-count'),
+  vesselCountBadge: () => document.getElementById('vessel-count-badge') || document.querySelector('.vessel-count-badge'),
+  msgsPerSec: () => document.getElementById('msg-rate') || document.getElementById('stat-msgs') || document.getElementById('msgs-per-sec') || document.getElementById('ais-rate') || document.querySelector('.msgs-per-sec'),
+  spillCount: () => document.getElementById('spills-count') || document.getElementById('spill-count') || document.getElementById('stat-spills') || document.querySelector('.spill-count'),
+  spillCountBadge: () => document.getElementById('spill-count-badge') || document.querySelector('.spill-count-badge'),
 
   // Lists & Sidebars
   vesselList: () => document.getElementById('vessel-list') || document.getElementById('vessels-list') || document.querySelector('.vessel-list'),
@@ -70,29 +72,12 @@ const dom = {
   // Right-side Detail Panel
   detailPanel: () => document.getElementById('detail-panel') || document.getElementById('details-panel') || document.querySelector('.detail-panel'),
   detailPanelTitle: () => document.getElementById('detail-panel-title') || document.querySelector('.detail-panel-title'),
-  detailPanelContent: () => document.getElementById('detail-panel-content') || document.querySelector('.detail-panel-content'),
-  detailCloseBtn: () => document.getElementById('btn-close-detail') || document.getElementById('detail-close') || document.querySelector('.detail-close') || document.querySelector('[data-action="close-detail"]'),
+  detailPanelContent: () => document.getElementById('panel-content') || document.getElementById('detail-panel-content') || document.querySelector('.detail-panel-content'),
+  detailCloseBtn: () => document.getElementById('btn-close-panel') || document.getElementById('btn-close-detail') || document.getElementById('detail-close') || document.querySelector('.detail-close') || document.querySelector('[data-action="close-detail"]'),
   candidateVesselsSection: () => document.getElementById('candidate-vessels-section') || document.querySelector('.candidate-vessels-section'),
   candidateVesselsList: () => document.getElementById('candidate-vessels-list') || document.querySelector('.candidate-vessels-list'),
 
-  // Upload Modal
-  btnOpenUpload: () => document.getElementById('btn-open-upload') || document.getElementById('btn-upload') || document.getElementById('upload-btn') || document.querySelector('[data-action="open-upload"]'),
-  uploadModal: () => document.getElementById('upload-modal') || document.getElementById('modal-upload') || document.querySelector('.upload-modal'),
-  btnCloseModal: () => document.getElementById('btn-close-modal') || document.getElementById('modal-close') || document.querySelector('.modal-close') || document.querySelector('[data-action="close-modal"]'),
-  modalBackdrop: () => document.querySelector('.modal-backdrop') || document.querySelector('.modal-overlay'),
 
-  fileDropZone: () => document.getElementById('file-drop-zone') || document.getElementById('drop-zone') || document.querySelector('.file-drop-zone'),
-  fileInput: () => document.getElementById('file-input') || document.getElementById('sar-file-input') || document.querySelector('input[type="file"]'),
-  selectedFileContainer: () => document.getElementById('selected-file-container') || document.querySelector('.selected-file-container'),
-  selectedFileName: () => document.getElementById('selected-file-name') || document.getElementById('file-name') || document.querySelector('.selected-file-name'),
-  selectedFileSize: () => document.getElementById('selected-file-size') || document.getElementById('file-size') || document.querySelector('.selected-file-size'),
-  btnRemoveFile: () => document.getElementById('btn-remove-file') || document.getElementById('remove-file-btn') || document.querySelector('[data-action="remove-file"]'),
-
-  thresholdSlider: () => document.getElementById('threshold-slider') || document.getElementById('threshold-input') || document.querySelector('input[type="range"]'),
-  thresholdValue: () => document.getElementById('threshold-value') || document.querySelector('.threshold-value'),
-  minAreaInput: () => document.getElementById('min-area-px') || document.getElementById('min-area-input') || document.getElementById('min-area'),
-  btnRunDetection: () => document.getElementById('btn-run-detection') || document.getElementById('run-detection') || document.getElementById('btn-analyze') || document.querySelector('[data-action="run-detection"]'),
-  uploadLoading: () => document.getElementById('upload-loading') || document.querySelector('.upload-loading'),
 
   // Toasts
   toastContainer: () => document.getElementById('toast-container'),
@@ -175,10 +160,12 @@ function formatDate(isoOrDate) {
 function initDashboard() {
   initMap();
   initControls();
-  initUploadModal();
   initDetailPanel();
   initBackendHealth();
   initAISStream();
+  initSpillPolling();
+  updateVesselCountDisplay();
+  updateSpillCountDisplay();
 }
 
 function initMap() {
@@ -343,10 +330,7 @@ function handleVesselPositionUpdate(pos) {
   state.mapManager?.updateVessel(pos);
 
   // Update total vessel count display
-  const countEl = dom.vesselCount();
-  if (countEl) {
-    countEl.textContent = state.mapManager?.getVesselCount() ?? state.vessels.size;
-  }
+  updateVesselCountDisplay();
 
   // Queue throttled sidebar row update for smooth real-time DOM rendering
   state.pendingSidebarUpdates.add(mmsi);
@@ -374,7 +358,7 @@ function flushSidebarUpdates() {
   }
 
   // Remove empty placeholder if any
-  const emptyPlaceholder = vesselList.querySelector('.empty-state, .placeholder');
+  const emptyPlaceholder = vesselList.querySelector('.empty-state, .placeholder, .list-empty');
   if (emptyPlaceholder && state.vessels.size > 0) {
     emptyPlaceholder.remove();
   }
@@ -404,22 +388,134 @@ function flushSidebarUpdates() {
     }
 
     row.innerHTML = `
-      <div class="vessel-item-header">
-        <span class="vessel-badge" style="background-color: ${typeInfo.color};" title="${typeInfo.label}">
-          ${typeInfo.emoji}
-        </span>
-        <span class="vessel-name" title="${escapeHtml(pos.shipName || '')}">${escapeHtml(displayName)}</span>
-        <span class="vessel-type-tag">${escapeHtml(typeInfo.label)}</span>
+      <span class="vessel-icon" style="background:${typeInfo.color}26;">${typeInfo.emoji}</span>
+      <div class="vessel-info">
+        <div class="vessel-name" title="${escapeHtml(pos.shipName || '')}">${escapeHtml(displayName)}</div>
+        <div class="vessel-meta">
+          <span>MMSI ${pos.mmsi}</span>
+          <span>${headingText}</span>
+        </div>
       </div>
-      <div class="vessel-item-meta">
-        <span class="vessel-mmsi">MMSI: ${pos.mmsi}</span>
-        <span class="vessel-speed">${sogText}</span>
-        <span class="vessel-heading">HDG: ${headingText}</span>
-      </div>
+      <span class="vessel-speed">${sogText}</span>
     `;
   }
 
   state.pendingSidebarUpdates.clear();
+}
+
+// ── 4b. Oil Spill Polling (AI backend detections) ────────────────────────────
+
+const SPILL_POLL_INTERVAL_MS = 3000;
+
+function initSpillPolling() {
+  pollSpills();
+  state.spillPollTimer = setInterval(pollSpills, SPILL_POLL_INTERVAL_MS);
+}
+
+async function pollSpills() {
+  let spills;
+  try {
+    spills = await getSpills();
+  } catch (err) {
+    // Backend (or its DB) is unreachable right now — try again next tick.
+    return;
+  }
+
+  const seen = new Set();
+  for (const item of spills || []) {
+    if (!item || !item.id) continue;
+    seen.add(item.id);
+
+    if (state.spills.has(item.id)) continue;
+
+    const spill = {
+      id: item.id,
+      latitude: item.latitude,
+      longitude: item.longitude,
+      detected_at: item.detected_at,
+      confidence: item.confidence,
+      area: item.area,
+      crs: item.crs,
+      region_count: item.region_count,
+    };
+
+    state.spills.set(item.id, { spill, candidate_vessels: [] });
+    state.mapManager?.addSpill(spill);
+    addSpillToSidebar(spill);
+
+    // Only interrupt with toasts for new detections after the first sync.
+    if (state.spillsSyncedOnce) {
+      const confPercent = Math.round((spill.confidence ?? 0) * 100);
+      showToast(
+        `Oil spill detected: ${spill.id} (${confPercent}% confidence)`,
+        'warning',
+        6000
+      );
+    }
+  }
+  state.spillsSyncedOnce = true;
+
+  // Remove spills that disappeared on the backend (e.g. DB reset).
+  for (const id of [...state.spills.keys()]) {
+    if (seen.has(id)) continue;
+    state.spills.delete(id);
+    state.mapManager?.removeSpill(id);
+    const el = document.getElementById(`spill-item-${id}`);
+    el?.remove();
+  }
+
+  updateSpillCountDisplay();
+}
+
+function addSpillToSidebar(spill) {
+  const list = dom.spillList();
+  if (!list || !spill || !spill.id) return;
+
+  const empty = list.querySelector('.empty-state, .placeholder, .list-empty');
+  if (empty && state.spills.size > 0) empty.remove();
+
+  let item = document.getElementById(`spill-item-${spill.id}`);
+  if (!item) {
+    item = document.createElement('div');
+    item.id = `spill-item-${spill.id}`;
+    item.className = 'spill-item';
+    item.dataset.spillId = spill.id;
+    item.addEventListener('click', () => selectSpill(spill.id, spill));
+    list.prepend(item);
+  }
+
+  const confPercent = Math.round((spill.confidence ?? 0) * 100);
+  const areaText = spill.area ? `${Math.round(spill.area).toLocaleString()} m²` : '—';
+  const lat = spill.latitude != null ? spill.latitude.toFixed(4) : '—';
+  const lon = spill.longitude != null ? spill.longitude.toFixed(4) : '—';
+
+  item.innerHTML = `
+    <div class="spill-icon-wrap">🛢️</div>
+    <div class="spill-info">
+      <div class="spill-id" title="${escapeHtml(spill.id)}">${escapeHtml(spill.id)}</div>
+      <div class="spill-coords">${lat}, ${lon}</div>
+      <div class="spill-time">${formatDate(spill.detected_at)} · ${areaText}</div>
+    </div>
+    <div class="spill-confidence" style="color:${confPercent >= 80 ? 'var(--spill-orange)' : 'var(--accent-cyan)'}">
+      ${confPercent}%
+    </div>
+  `;
+}
+
+function updateSpillCountDisplay() {
+  const count = state.mapManager?.getSpillCount() ?? state.spills.size;
+  const el = dom.spillCount();
+  if (el) el.textContent = count;
+  const badge = dom.spillCountBadge();
+  if (badge) badge.textContent = count;
+}
+
+function updateVesselCountDisplay() {
+  const count = state.mapManager?.getVesselCount() ?? state.vessels.size;
+  const el = dom.vesselCount();
+  if (el) el.textContent = count;
+  const badge = dom.vesselCountBadge();
+  if (badge) badge.textContent = count;
 }
 
 // ── 5. Vessel Selection & Detail Panel ────────────────────────────────────────
@@ -585,243 +681,7 @@ async function loadVesselTrajectory(mmsi) {
   }
 }
 
-// ── 9. SAR TIFF Upload Modal ─────────────────────────────────────────────────
-
-function initUploadModal() {
-  const btnOpen = dom.btnOpenUpload();
-  const modal = dom.uploadModal();
-  const btnClose = dom.btnCloseModal();
-  const backdrop = dom.modalBackdrop();
-  const dropZone = dom.fileDropZone();
-  const fileInput = dom.fileInput();
-  const btnRemove = dom.btnRemoveFile();
-  const slider = dom.thresholdSlider();
-  const thresholdVal = dom.thresholdValue();
-  const btnRun = dom.btnRunDetection();
-
-  const openModal = () => {
-    if (modal) {
-      modal.classList.add('active', 'open');
-      modal.classList.remove('hidden');
-    }
-  };
-
-  const closeModal = () => {
-    if (state.isAnalyzing) return;
-    if (modal) {
-      modal.classList.remove('active', 'open');
-      modal.classList.add('hidden');
-    }
-  };
-
-  btnOpen?.addEventListener('click', openModal);
-  btnClose?.addEventListener('click', closeModal);
-  backdrop?.addEventListener('click', closeModal);
-
-  // Slider updates display value
-  if (slider && thresholdVal) {
-    slider.addEventListener('input', (e) => {
-      thresholdVal.textContent = Number(e.target.value).toFixed(2);
-    });
-  }
-
-  // File selection & Drag/Drop
-  if (dropZone && fileInput) {
-    dropZone.addEventListener('click', () => fileInput.click());
-
-    ['dragenter', 'dragover'].forEach((eventName) => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.add('drag-over', 'dragover');
-      });
-    });
-
-    ['dragleave', 'drop'].forEach((eventName) => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('drag-over', 'dragover');
-      });
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-      const files = e.dataTransfer?.files;
-      if (files && files.length > 0) {
-        handleFileSelected(files[0]);
-      }
-    });
-
-    fileInput.addEventListener('change', (e) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        handleFileSelected(files[0]);
-      }
-    });
-  }
-
-  btnRemove?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    clearSelectedFile();
-  });
-
-  btnRun?.addEventListener('click', () => {
-    runSpillDetection();
-  });
-}
-
-function handleFileSelected(file) {
-  if (!file) return;
-
-  const validExtensions = ['.tif', '.tiff'];
-  const nameLower = file.name.toLowerCase();
-  const isValid = validExtensions.some((ext) => nameLower.endsWith(ext));
-
-  if (!isValid) {
-    showToast('Please select a valid SAR GeoTIFF image (.tif, .tiff)', 'warning', 4000);
-    return;
-  }
-
-  state.selectedFile = file;
-
-  const container = dom.selectedFileContainer();
-  const nameEl = dom.selectedFileName();
-  const sizeEl = dom.selectedFileSize();
-  const btnRun = dom.btnRunDetection();
-
-  if (container) container.classList.remove('hidden');
-  if (nameEl) nameEl.textContent = file.name;
-  if (sizeEl) sizeEl.textContent = formatBytes(file.size);
-  if (btnRun) btnRun.disabled = false;
-}
-
-function clearSelectedFile() {
-  state.selectedFile = null;
-
-  const fileInput = dom.fileInput();
-  if (fileInput) fileInput.value = '';
-
-  const container = dom.selectedFileContainer();
-  const nameEl = dom.selectedFileName();
-  const sizeEl = dom.selectedFileSize();
-  const btnRun = dom.btnRunDetection();
-
-  if (container) container.classList.add('hidden');
-  if (nameEl) nameEl.textContent = '';
-  if (sizeEl) sizeEl.textContent = '';
-  if (btnRun) btnRun.disabled = true;
-}
-
-// ── 10–12. Oil Spill Detection ───────────────────────────────────────────────
-
-async function runSpillDetection() {
-  if (!state.selectedFile || state.isAnalyzing) return;
-
-  const slider = dom.thresholdSlider();
-  const minAreaInput = dom.minAreaInput();
-  const btnRun = dom.btnRunDetection();
-  const loading = dom.uploadLoading();
-
-  const threshold = slider ? parseFloat(slider.value) : 0.5;
-  const minAreaPx = minAreaInput ? parseInt(minAreaInput.value, 10) : 8;
-
-  state.isAnalyzing = true;
-  if (btnRun) {
-    btnRun.disabled = true;
-    btnRun.dataset.originalText = btnRun.textContent;
-    btnRun.textContent = 'Analyzing SAR Image...';
-  }
-  if (loading) loading.classList.remove('hidden');
-
-  try {
-    const result = await analyzeSpill(state.selectedFile, threshold, minAreaPx);
-
-    if (!result || !result.spill) {
-      throw new Error('Analysis completed with an invalid response structure.');
-    }
-
-    const { spill, candidate_vessels = [] } = result;
-
-    // Cache the detection
-    state.spills.set(spill.id, { spill, candidate_vessels });
-
-    // Add marker to Leaflet
-    state.mapManager?.addSpill(spill);
-
-    // Update spill count and sidebar
-    updateSpillCountDisplay();
-    addSpillToSidebar(spill);
-
-    showToast(`Oil spill detected: ${spill.id} (${(spill.confidence * 100).toFixed(0)}% confidence)`, 'success', 5000);
-
-    // Close upload modal & reset selection
-    const modal = dom.uploadModal();
-    if (modal) {
-      modal.classList.remove('active', 'open');
-      modal.classList.add('hidden');
-    }
-    clearSelectedFile();
-
-    // Select the newly discovered spill and open detail panel
-    selectSpill(spill.id, spill);
-  } catch (err) {
-    const message = err.message || 'Spill detection analysis failed';
-    showToast(message, 'error', 6000);
-  } finally {
-    state.isAnalyzing = false;
-    if (btnRun) {
-      btnRun.disabled = !state.selectedFile;
-      btnRun.textContent = btnRun.dataset.originalText || 'Run Detection';
-    }
-    if (loading) loading.classList.add('hidden');
-  }
-}
-
-function updateSpillCountDisplay() {
-  const el = dom.spillCount();
-  if (el) {
-    el.textContent = state.mapManager?.getSpillCount() ?? state.spills.size;
-  }
-}
-
-function addSpillToSidebar(spill) {
-  const list = dom.spillList();
-  if (!list) return;
-
-  const empty = list.querySelector('.empty-state, .placeholder');
-  if (empty) empty.remove();
-
-  let item = document.getElementById(`spill-item-${spill.id}`);
-  if (!item) {
-    item = document.createElement('div');
-    item.id = `spill-item-${spill.id}`;
-    item.className = 'spill-item';
-    item.dataset.spillId = spill.id;
-
-    item.addEventListener('click', () => {
-      selectSpill(spill.id, spill);
-    });
-
-    list.prepend(item);
-  }
-
-  const confPercent = Math.round((spill.confidence ?? 0) * 100);
-  const areaText = spill.area ? `${Math.round(spill.area)} m²` : '—';
-
-  item.innerHTML = `
-    <div class="spill-item-header">
-      <span class="spill-indicator">⚠</span>
-      <span class="spill-id" title="${escapeHtml(spill.id)}">${escapeHtml(spill.id)}</span>
-      <span class="spill-conf-badge ${confPercent >= 80 ? 'high' : 'med'}">${confPercent}%</span>
-    </div>
-    <div class="spill-item-meta">
-      <span>${spill.latitude.toFixed(4)}, ${spill.longitude.toFixed(4)}</span>
-      <span>${areaText}</span>
-    </div>
-  `;
-}
-
-// ── 13–14. Spill Selection & Candidate Vessels ──────────────────────────────
+// ── 9. Spill Selection & Candidate Vessels ──────────────────────────────────
 
 async function selectSpill(spillId, cachedSpill = null) {
   cleanupSelection();

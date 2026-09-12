@@ -59,12 +59,16 @@ def client():
         yield c
 
 
+_DEMO_MMSIS = (111000001, 111000008, 205221000, 244123456)
+
+
 @pytest.fixture(autouse=True)
 def _spills_clean():
     yield
     with get_session_factory()() as session, session.begin():
-        for spill in session.execute(select(OilSpill)).scalars():
-            session.delete(spill)
+        session.execute(delete(AttributionResult))
+        session.execute(delete(OilSpill))
+        session.execute(delete(Vessel).where(Vessel.mmsi.in_(_DEMO_MMSIS)))
 
 
 def test_analyze_happy_path_persists_spill(client):
@@ -202,6 +206,72 @@ def test_analyze_no_oil_returns_200_and_no_db_record(client, monkeypatch):
     assert body["spill"] is None
     assert body["candidate_vessels"] == []
     assert _count_spills() == before
+
+
+def test_demo_01_upload_persists_spill_and_readable(client):
+    """demo_01_oil_spill uploads return a deterministic result (demo fallback
+    for the hackathon) AND persist it so every read endpoint serves the data."""
+    resp = _upload(client, GEO_REF_TIFF, name="demo_01_oil_spill.tif")
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    spill = body["spill"]
+    assert isinstance(spill["id"], str) and spill["id"]
+    assert spill["latitude"] == 38.5
+    assert spill["longitude"] == -9.5
+    assert spill["detected_at"] is not None
+    assert spill["confidence"] == 0.93
+    assert spill["area"] == 850000.0
+    assert spill["crs"] == "EPSG:4326"
+    assert spill["region_count"] == 1
+    assert body["candidate_vessels"], "demo_01 must return a candidate vessel"
+    assert body["candidate_vessels"][0]["mmsi"] == 111000001
+    assert body["candidate_vessels"][0]["ship_name"] == "DEMO TANKER A"
+    assert _count_spills() == 1  # demo path now persists to the DB
+
+    # persisted and readable via the read endpoints
+    detail = client.get(f"/oil-spills/{spill['id']}")
+    assert detail.status_code == 200, detail.text
+    detail_body = detail.json()
+    assert detail_body["crs"] == "EPSG:4326"
+    assert detail_body["region_count"] == 1
+    assert detail_body["candidate_vessels"][0]["ship_type"] == "Tanker"
+    assert detail_body["candidate_vessels"][0]["attribution_score"] == 0.93
+    assert detail_body["candidate_vessels"][0]["evidence"]
+
+    vessels = client.get(f"/oil-spills/{spill['id']}/vessels")
+    assert vessels.status_code == 200
+    assert vessels.json()[0]["mmsi"] == 111000001
+
+    vessel = client.get("/vessels/111000001")
+    assert vessel.status_code == 200, vessel.text
+    assert vessel.json()["ship_name"] == "DEMO TANKER A"
+    assert vessel.json()["ship_type"] == "Tanker"
+
+
+def test_demo_02_upload_persists_spill_and_readable(client):
+    resp = _upload(client, GEO_REF_TIFF, name="demo_02_oil_spill.tif")
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    spill = body["spill"]
+    assert isinstance(spill["id"], str) and spill["id"]
+    assert spill["latitude"] == 38.33
+    assert spill["longitude"] == -9.66
+    assert body["candidate_vessels"], "demo_02 must return a candidate vessel"
+    assert body["candidate_vessels"][0]["mmsi"] == 205221000
+    assert body["candidate_vessels"][0]["ship_name"] == "ATLANTIC CARRIER"
+    assert _count_spills() == 1
+
+    detail = client.get(f"/oil-spills/{spill['id']}").json()
+    assert detail["crs"] == "EPSG:4326"
+    assert detail["candidate_vessels"][0]["ship_type"] == "Tanker"
+    assert detail["candidate_vessels"][0]["evidence"]
+    assert detail["candidate_vessels"][1]["ship_type"] == "Cargo"
+
+    vessel = client.get("/vessels/205221000")
+    assert vessel.status_code == 200, vessel.text
+    assert vessel.json()["ship_name"] == "ATLANTIC CARRIER"
 
 
 def test_unsupported_extension_returns_415(client):

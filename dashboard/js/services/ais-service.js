@@ -1,9 +1,11 @@
 /**
  * ais-service.js
- * WebSocket consumer for the mock AIS server (ws://localhost:8001/ais).
- * Parses AISStream.io-style PositionReport messages.
+ * WebSocket consumer for the AI backend's live ship feed.
+ * Connects to the FastAPI backend (ws://localhost:8000/ws/live), which relays
+ * every PositionReport parsed and persisted by the AIS worker. The message
+ * envelope is identical to the upstream AISStream.io format.
  *
- * Wire format (from mock_ais/models.py):
+ * Wire format (same as mock_ais/models.py -> back through the worker):
  * {
  *   "MessageType": "PositionReport",
  *   "MetaData": { "MMSI": int, "ShipName": str, "ShipType": int, "Latitude": float, "Longitude": float },
@@ -14,7 +16,7 @@
  * }
  */
 
-export const AIS_WS_URL = 'ws://localhost:8001/ais';
+export const AIS_WS_URL = 'ws://localhost:8000/ws/live';
 
 /** Ship-type codes → human label + emoji */
 const SHIP_TYPE_MAP = {

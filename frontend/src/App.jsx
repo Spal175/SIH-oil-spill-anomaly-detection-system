@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import Satellite from './pages/Satellite'
+import { checkHealth, API_BASE } from './api'
 
 const NAV_ITEMS = [
   { label: 'Satellite', to: '/', active: true },
@@ -8,14 +10,50 @@ const NAV_ITEMS = [
 ]
 
 function SystemStatus() {
+  const [online, setOnline] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    const poll = () => checkHealth().then((ok) => alive && setOnline(ok))
+    poll()
+    const id = setInterval(poll, 8000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [])
+
+  const status = online === null ? 'checking' : online ? 'online' : 'offline'
+
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-surface-900/60 border border-surface-700">
       <div className="relative flex w-2 h-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60" />
-        <span className="relative inline-flex rounded-full w-2 h-2 bg-amber-400" />
+        <span
+          className={`absolute inline-flex h-full w-full rounded-full animate-ping opacity-60 ${
+            status === 'online' ? 'bg-status-success' : status === 'offline' ? 'bg-status-error' : 'bg-amber-400'
+          }`}
+        />
+        <span
+          className={`relative inline-flex rounded-full w-2 h-2 ${
+            status === 'online' ? 'bg-status-success' : status === 'offline' ? 'bg-status-error' : 'bg-amber-400'
+          }`}
+        />
       </div>
       <span className="text-[10px] font-mono tracking-wider uppercase text-gray-500">
-        Backend <span className="text-amber-300/90">Offline · UI Only</span>
+        Backend{' '}
+        <span
+          className={
+            status === 'online'
+              ? 'text-status-success'
+              : status === 'offline'
+              ? 'text-status-error'
+              : 'text-amber-300/90'
+          }
+        >
+          {online === null ? 'Checking…' : online ? 'Online' : 'Offline'}
+        </span>
+        <span className="text-gray-700"> · </span>
+        <span className="text-gray-600">{API_BASE}</span>
       </span>
     </div>
   )
@@ -89,7 +127,7 @@ export default function App() {
         <footer className="border-t border-surface-700/60 mt-8">
           <div className="max-w-6xl mx-auto px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] font-mono text-gray-700">
             <span>OIL SPILL ANOMALY DETECTION · SMART INDIA HACKATHON</span>
-            <span>FRONTEND PROTOTYPE v0.2.0 — NO BACKEND CONNECTION</span>
+            <span>CONNECTED TO AI BACKEND · DETECTIONS STREAM TO OCEANWATCH DASHBOARD</span>
           </div>
         </footer>
       </div>

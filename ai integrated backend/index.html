@@ -7,8 +7,7 @@
   <meta name="description" content="Real-time maritime surveillance dashboard for oil spill detection and vessel tracking." />
 
   <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,6 +15,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
+  <!-- Google Fonts (cosmetic; page falls back to system fonts if unreachable) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -65,13 +68,6 @@
     </div>
 
     <div class="topbar-actions">
-      <button class="btn-upload" id="btn-upload-tiff" title="Analyze a SAR GeoTIFF for oil spills">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" d="M12 16V4m0 0l-4 4m4-4l4 4"/>
-          <path stroke-linecap="round" d="M4 20h16"/>
-        </svg>
-        Analyze SAR TIFF
-      </button>
     </div>
   </header>
 
@@ -111,7 +107,7 @@
         <div class="spill-list" id="spill-list">
           <div class="list-empty" id="spill-empty">
             <div class="empty-icon">🛢️</div>
-            <p>No detections yet.<br/>Upload a SAR TIFF to analyze.</p>
+            <p>No detections yet.</p>
           </div>
         </div>
       </div>
@@ -155,87 +151,13 @@
 
   </main>
 
-  <!-- UPLOAD MODAL -->
-  <div class="modal-backdrop" id="upload-modal" hidden>
-    <div class="modal">
-      <div class="modal-header">
-        <h2>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
-          </svg>
-          Analyze SAR GeoTIFF
-        </h2>
-        <button class="modal-close" id="btn-modal-close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-
-      <div class="modal-body">
-        <div class="upload-zone" id="upload-zone">
-          <div class="upload-icon">
-            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" d="M24 32V16m0 0l-8 8m8-8l8 8"/>
-              <path stroke-linecap="round" d="M40 36v4a4 4 0 01-4 4H12a4 4 0 01-4-4v-4"/>
-            </svg>
-          </div>
-          <p class="upload-primary">Drop SAR GeoTIFF here</p>
-          <p class="upload-secondary">or <label for="file-input" class="file-label">browse files</label></p>
-          <p class="upload-hint">Accepted: .tif .tiff (georeferenced SAR imagery)</p>
-          <input type="file" id="file-input" accept=".tif,.tiff" hidden />
-        </div>
-
-        <div class="upload-file-info" id="upload-file-info" hidden>
-          <div class="file-type-icon">🛰️</div>
-          <div class="file-details">
-            <span class="file-name" id="file-name-display"></span>
-            <span class="file-size" id="file-size-display"></span>
-          </div>
-          <button class="file-remove" id="btn-file-remove" title="Remove file">✕</button>
-        </div>
-
-        <div class="upload-options">
-          <div class="option-row">
-            <div class="option-group">
-              <label class="option-label" for="threshold-slider">Detection Threshold</label>
-              <div class="option-control">
-                <input type="range" id="threshold-slider" min="0.1" max="0.9" step="0.05" value="0.5" class="range-slider"/>
-                <span class="range-value" id="threshold-value">0.50</span>
-              </div>
-            </div>
-            <div class="option-group">
-              <label class="option-label" for="min-area-input">Min Region (px)</label>
-              <input type="number" id="min-area-input" value="8" min="0" max="500" class="number-input"/>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <div class="analyze-status" id="analyze-status" hidden>
-          <div class="analyze-spinner"></div>
-          <span id="analyze-status-text">Running ML inference…</span>
-        </div>
-        <button class="btn-cancel" id="btn-modal-cancel">Cancel</button>
-        <button class="btn-analyze" id="btn-analyze" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
-          Run Detection
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- TOAST NOTIFICATIONS -->
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN2GqM=" crossorigin=""></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
 
   <!-- App entry point -->
-  <script type="module" src="js/app.js"></script>
+  <script defer src="js/app.js"></script>
 </body>
 </html>

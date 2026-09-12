@@ -5,7 +5,7 @@ business logic (ML, GIS, attribution mathematics, database) lives outside the
 route layer.
 """
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -35,7 +35,9 @@ class CandidateVessel(BaseModel):
 class SpillDetail(BaseModel):
     """Detected oil spill persisted by the analysis pipeline."""
 
-    id: Optional[str] = Field(default=None, description="Stored spill id")
+    id: Optional[Union[str, int]] = Field(
+        default=None, description="Stored spill id"
+    )
     latitude: Optional[float] = Field(default=None, ge=-90, le=90)
     longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     detected_at: Optional[datetime] = Field(
@@ -45,6 +47,24 @@ class SpillDetail(BaseModel):
     area: Optional[float] = Field(default=None, ge=0, description="Area in m^2 when available")
     crs: Optional[str] = Field(default=None, description="Source GeoTIFF CRS")
     region_count: Optional[int] = Field(default=None, ge=0)
+
+
+class SpillListItem(BaseModel):
+    """A storage-level spill summary for the list endpoint.
+
+    Omits candidate-vessel attribution; clients call
+    ``GET /oil-spills/{spill_id}`` for the full detail.
+    """
+
+    id: str
+    latitude: float
+    longitude: float
+    detected_at: Optional[datetime] = None
+    confidence: Optional[float] = None
+    area: Optional[float] = None
+    crs: Optional[str] = None
+    region_count: Optional[int] = None
+    created_at: Optional[datetime] = None
 
 
 class OilSpillAnalyzeResponse(BaseModel):
@@ -74,3 +94,11 @@ class OilSpillDetailResponse(BaseModel):
     geometry: Optional[dict] = Field(default=None, description="GeoJSON geometry when available")
     created_at: Optional[datetime] = None
     candidate_vessels: list[CandidateVessel] = Field(default_factory=list)
+
+
+class OilSpillDeleteResponse(BaseModel):
+    """DELETE result for stored oil spills."""
+
+    deleted: int = Field(
+        ..., ge=0, description="Number of oil-spill records removed"
+    )

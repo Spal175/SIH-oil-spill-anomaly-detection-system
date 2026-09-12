@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Optional
 
 import rasterio
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 
 from app.schemas.oil_spill import (
     OilSpillAnalyzeResponse,
+    OilSpillDeleteResponse,
     OilSpillDetailResponse,
+    SpillListItem,
 )
 from app.services.oil_spill_analysis import (
     AnalysisError,
@@ -24,8 +26,11 @@ from app.services.oil_spill_analysis import (
     MLError,
     UnsupportedFileError,
     analyze_tiff,
+    delete_all_spills,
+    delete_spill,
     get_spill_detail,
     get_spill_vessels,
+    list_spills,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,6 +95,7 @@ async def analyze_spill(
     except UnsupportedFileError:
         raise HTTPException(status_code=415, detail=UnsupportedFileError.client_detail)
 
+    original_name = file.filename or ""
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir) / "upload.tiff"
@@ -97,7 +103,10 @@ async def analyze_spill(
                 out.write(await file.read())
             _validate_tiff_file(tmp_path)
             result = analyze_tiff(
-                str(tmp_path), threshold=threshold, min_area_px=min_area_px
+                str(tmp_path),
+                threshold=threshold,
+                min_area_px=min_area_px,
+                filename=original_name,
             )
     except AnalysisError as exc:
         status = _ERROR_STATUS.get(type(exc), 500)
@@ -110,6 +119,14 @@ async def analyze_spill(
 
     response.status_code = 201 if result["spill"] is not None else 200
     return result
+
+
+@router.get("", response_model=list[SpillListItem])
+async def list_spills_route(
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list:
+    """Return stored oil spills, most recent first (no attribution detail)."""
+    return list_spills(limit=limit)
 
 
 @router.get("/{spill_id}", response_model=OilSpillDetailResponse)
@@ -134,3 +151,22 @@ async def get_spill_vessels_route(spill_id: str) -> list:
             detail=f"oil spill {spill_id} not found",
         )
     return vessels
+
+
+@router.delete("", status_code=200, response_model=OilSpillDeleteResponse)
+async def delete_all_spills_route() -> dict:
+    """Delete every stored oil spill (attribution rows cascade)."""
+    deleted = delete_all_spills()
+    logger.info("deleted %d oil spills", deleted)
+    return {"deleted": deleted}
+
+
+@router.delete("/{spill_id}", status_code=200, response_model=OilSpillDeleteResponse)
+async def delete_spill_route(spill_id: str) -> dict:
+    """Delete one stored oil spill (attribution rows cascade)."""
+    if not delete_spill(spill_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"oil spill {spill_id} not found",
+        )
+    return {"deleted": 1}

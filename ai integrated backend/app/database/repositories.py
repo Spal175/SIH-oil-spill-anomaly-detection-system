@@ -4,6 +4,7 @@ Repositories wrap a SQLAlchemy session and expose the data-access operations the
 services and workers need. AIS and oil-spill data are kept in separate
 repositories / tables.
 """
+import json
 from datetime import datetime
 from math import cos, radians
 from typing import Optional
@@ -102,6 +103,8 @@ class OilSpillRepository:
         centroid_longitude: float,
         area: Optional[float] = None,
         confidence: Optional[float] = None,
+        crs: Optional[str] = None,
+        region_count: Optional[int] = None,
         geometry_geojson: Optional[str] = None,
     ) -> OilSpill:
         """Persist one detected oil spill (ML + GIS output -> DB row).
@@ -117,6 +120,8 @@ class OilSpillRepository:
             centroid_longitude=centroid_longitude,
             area=area,
             confidence=confidence,
+            crs=crs,
+            region_count=region_count,
             geometry_geojson=geometry_geojson,
         )
         self._session.add(spill)
@@ -125,6 +130,33 @@ class OilSpillRepository:
 
     def get_by_id(self, spill_id: str) -> Optional[OilSpill]:
         return self._session.get(OilSpill, spill_id)
+
+    def delete_by_id(self, spill_id: str) -> bool:
+        """Delete one spill (attribution rows cascade via FK)."""
+        from sqlalchemy import delete
+
+        result = self._session.execute(
+            delete(OilSpill).where(OilSpill.id == spill_id)
+        )
+        self._session.flush()
+        return result.rowcount > 0
+
+    def delete_all(self) -> int:
+        """Delete every stored oil spill; returns the number deleted."""
+        from sqlalchemy import delete
+
+        result = self._session.execute(delete(OilSpill))
+        self._session.flush()
+        return result.rowcount
+
+    def list_all(self, limit: int = 100) -> list[OilSpill]:
+        """Most recently created spills first, newest at index 0."""
+        stmt = (
+            select(OilSpill)
+            .order_by(OilSpill.created_at.desc(), OilSpill.id.desc())
+            .limit(limit)
+        )
+        return list(self._session.execute(stmt).scalars())
 
     def add_attribution_results(self, spill_id: str, results: list[dict]) -> None:
         raise NotImplementedError
@@ -157,6 +189,7 @@ class AttributionRepository:
                 AttributionResult.distance_km,
                 AttributionResult.time_difference_minutes,
                 AttributionResult.score,
+                AttributionResult.evidence,
             )
             .join(Vessel, Vessel.mmsi == AttributionResult.mmsi)
             .where(AttributionResult.spill_id == spill_id)
@@ -171,6 +204,7 @@ class AttributionRepository:
                 "distance_km": row.distance_km,
                 "time_difference_minutes": row.time_difference_minutes,
                 "attribution_score": row.score,
+                "evidence": json.loads(row.evidence) if row.evidence else [],
             }
             for row in self._session.execute(stmt).all()
         ]
@@ -179,8 +213,8 @@ class AttributionRepository:
         """Replace the stored attribution rows for a spill with fresh ones.
 
         Each ``results`` item: mmsi, distance_km, time_difference_minutes,
-        score, rank. Deleting before inserting keeps the table consistent when
-        re-running attribution over the same spill.
+        score, rank, evidence (list of strings). Deleting before inserting keeps
+        the table consistent when re-running attribution over the same spill.
         """
         from sqlalchemy import delete
 
@@ -188,6 +222,7 @@ class AttributionRepository:
             delete(AttributionResult).where(AttributionResult.spill_id == spill_id)
         )
         for item in results:
+            evidence = item.get("evidence")
             self._session.add(
                 AttributionResult(
                     spill_id=spill_id,
@@ -196,6 +231,7 @@ class AttributionRepository:
                     time_difference_minutes=item.get("time_difference_minutes"),
                     score=item.get("score"),
                     rank=item.get("rank"),
+                    evidence=json.dumps(evidence) if evidence else None,
                 )
             )
         self._session.flush()

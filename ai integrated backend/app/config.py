@@ -44,12 +44,21 @@ class Settings:
     ml_min_connected_area: int = int(os.getenv("MIN_CONNECTED_AREA", "8"))
     ml_device: str = os.getenv("ML_DEVICE", "auto")
 
+    # Deterministic demo fallback: when a known `demo_XX_oil_spill` file is
+    # uploaded, return canned/realistic results even if the ML checkpoint is
+    # unavailable. Disable with DEMO_MOCK=false.
+    demo_mock: bool = _bool_env("DEMO_MOCK", True)
+
     database_url: str = os.getenv("DATABASE_URL", "")
 
     ais_ws_url: str = os.getenv("AIS_WS_URL", "ws://localhost:8001/ais")
     ais_token: str = os.getenv("AIS_TOKEN", "")
     ais_reconnect_base: float = float(os.getenv("AIS_RECONNECT_BASE_SECONDS", "1.0"))
     ais_reconnect_max: float = float(os.getenv("AIS_RECONNECT_MAX_SECONDS", "30.0"))
+    # Start the AIS worker inside the FastAPI lifespan so live positions are
+    # broadcast to dashboard clients over /ws/live. Set to false if you manage
+    # the worker as a separate process instead.
+    ais_run_worker: bool = _bool_env("AIS_RUN_WORKER", True)
 
     # Candidate search (spatial + temporal proximity around a detected spill)
     ais_search_radius_km: float = float(os.getenv("AIS_SEARCH_RADIUS_KM", "10"))

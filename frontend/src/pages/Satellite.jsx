@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import SatelliteUpload from '../components/Satellite/SatelliteUpload'
 import SatellitePreview from '../components/Satellite/SatellitePreview'
 import SatelliteMetadata from '../components/Satellite/SatelliteMetadata'
+import { analyzeTiff, formatDetectedAt, API_BASE } from '../api'
 
 const STEPS = [
   { id: 1, label: 'Upload', desc: 'Select GeoTIFF' },
@@ -101,23 +102,39 @@ function SatelliteHeroGraphic() {
 export default function Satellite() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [analysisStatus, setAnalysisStatus] = useState(null)
+  const [analysisResult, setAnalysisResult] = useState(null)
+  const [analysisError, setAnalysisError] = useState(null)
 
   const handleFileSelect = useCallback((file) => {
     setSelectedFile(file)
     setAnalysisStatus(null)
+    setAnalysisResult(null)
+    setAnalysisError(null)
   }, [])
 
   const handleRemoveFile = useCallback(() => {
     setSelectedFile(null)
     setAnalysisStatus(null)
+    setAnalysisResult(null)
+    setAnalysisError(null)
   }, [])
 
-  const handleAnalyze = useCallback(() => {
+  const handleAnalyze = useCallback(async () => {
     if (!selectedFile) return
-    setAnalysisStatus('ready')
+    setAnalysisStatus('loading')
+    setAnalysisResult(null)
+    setAnalysisError(null)
+    try {
+      const result = await analyzeTiff(selectedFile)
+      setAnalysisResult(result)
+      setAnalysisStatus(result.spill ? 'detected' : 'clean')
+    } catch (err) {
+      setAnalysisError(err.message)
+      setAnalysisStatus('error')
+    }
   }, [selectedFile])
 
-  const currentStep = !selectedFile ? 1 : analysisStatus === 'ready' ? 3 : 2
+  const currentStep = !selectedFile ? 1 : ['loading', 'detected', 'clean', 'error'].includes(analysisStatus) ? 3 : 2
 
   return (
     <div className="space-y-6">
@@ -185,20 +202,20 @@ export default function Satellite() {
 
           <div
             className={`appear flex items-center gap-2.5 px-4 py-2.5 rounded-md border transition-colors duration-200 ${
-              analysisStatus === 'ready'
+              analysisStatus === 'loading'
                 ? 'bg-status-info/10 border-status-info/20'
                 : 'bg-surface-800/60 border-surface-600'
             }`}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full ${
-                analysisStatus === 'ready' ? 'bg-status-info' : 'bg-sea'
+                analysisStatus === 'loading' ? 'bg-status-info' : 'bg-sea'
               } animate-pulse flex-shrink-0`}
             />
             <p className="text-xs text-gray-400">
-              {analysisStatus === 'ready'
-                ? 'Ready for analysis — API integration pending.'
-                : 'GeoTIFF held locally. No network request has been made.'}
+              {analysisStatus === 'loading'
+                ? 'Sending GeoTIFF to AI backend — running ML detection…'
+                : 'GeoTIFF held locally. Run analysis to send it to the AI backend.'}
             </p>
           </div>
         </div>
@@ -222,27 +239,113 @@ export default function Satellite() {
 
         <button
           onClick={handleAnalyze}
-          disabled={!selectedFile}
+          disabled={!selectedFile || analysisStatus === 'loading'}
           className="btn-primary inline-flex items-center gap-2 w-full sm:w-auto justify-center"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-          </svg>
-          Analyze Satellite Image
+          {analysisStatus === 'loading' ? (
+            <>
+              <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+              Analyzing…
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+              </svg>
+              Analyze Satellite Image
+            </>
+          )}
         </button>
       </div>
 
       {/* Analyze result status */}
-      {analysisStatus === 'ready' && (
+      {analysisStatus === 'detected' && analysisResult?.spill && (
+        <div className="appear space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 px-4 py-3 rounded-md bg-status-error/10 border border-status-error/25">
+            <div className="flex items-start gap-2.5">
+              <svg className="w-5 h-5 text-status-error flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-status-error">Oil spill detected</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Detection broadcast live to the OceanWatch dashboard at{' '}
+                  <span className="font-mono">{API_BASE}</span>.
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Spill ID{' '}
+                  <span className="font-mono text-gray-300">{analysisResult.spill.id}</span> · Detected{' '}
+                  {formatDetectedAt(analysisResult.spill.detected_at)}
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:flex-none">
+              {[
+                ['Latitude', analysisResult.spill.latitude?.toFixed(4), 'text-gray-200'],
+                ['Longitude', analysisResult.spill.longitude?.toFixed(4), 'text-gray-200'],
+                ['Confidence', analysisResult.spill.confidence != null ? `${(analysisResult.spill.confidence * 100).toFixed(0)}%` : '—', 'text-status-error'],
+              ].map(([label, value, color]) => (
+                <div key={label} className="flex flex-col gap-0.5 px-3 py-2 rounded-md bg-surface-900/60 border border-surface-700">
+                  <span className="label-text text-gray-600">{label}</span>
+                  <span className={`text-xs font-mono font-medium ${color}`}>{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {analysisResult.candidate_vessels?.length > 0 && (
+            <div className="rounded-md border border-surface-600 bg-surface-800/60 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-surface-700 flex items-center justify-between">
+                <span className="text-[11px] font-mono uppercase tracking-widest text-gray-500">Attributed Vessels</span>
+                <span className="badge text-status-warning border-status-warning/30 bg-status-warning/10">{analysisResult.candidate_vessels.length}</span>
+              </div>
+              <div className="divide-y divide-surface-700/60">
+                {analysisResult.candidate_vessels.map((c) => (
+                  <div key={c.mmsi} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-200 truncate">
+                        <span className="font-mono text-[10px] text-accent mr-2">#{c.rank}</span>
+                        {c.ship_name || `MMSI ${c.mmsi}`}
+                      </p>
+                      <p className="text-[10px] font-mono text-gray-500 mt-0.5">
+                        {c.mmsi} · {c.ship_type || 'Unknown type'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4 flex-none">
+                      <span className="text-[10px] font-mono text-gray-500">{c.distance_km != null ? `${c.distance_km.toFixed(2)} km` : '—'}</span>
+                      <span className="text-[10px] font-mono text-gray-500">{c.time_difference_minutes != null ? `${c.time_difference_minutes} min` : '—'}</span>
+                      <span className={`text-[10px] font-mono ${c.attribution_score != null ? 'text-status-error' : 'text-gray-600'}`}>
+                        {c.attribution_score != null ? `${(c.attribution_score * 100).toFixed(0)}%` : '—'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {analysisStatus === 'clean' && (
         <div className="appear flex items-center gap-2.5 px-4 py-3 rounded-md bg-surface-800 border border-surface-600">
           <svg className="w-4 h-4 text-status-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <p className="text-sm text-gray-300">
-            <span className="font-medium text-status-success">Ready for analysis.</span>{' '}
-            <span className="text-gray-500">
-              The Analyze button is a placeholder — API integration will be added later.
-            </span>
+            <span className="font-medium text-status-success">No oil spill detected.</span>{' '}
+            <span className="text-gray-500">The model found nothing suspicious in this scene.</span>
+          </p>
+        </div>
+      )}
+
+      {analysisStatus === 'error' && (
+        <div className="appear flex items-center gap-2.5 px-4 py-3 rounded-md bg-status-error/10 border border-status-error/25">
+          <svg className="w-4 h-4 text-status-error flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+          <p className="text-sm text-gray-300">
+            <span className="font-medium text-status-error">Analysis failed.</span>{' '}
+            <span className="text-gray-500">{analysisError}</span>
           </p>
         </div>
       )}

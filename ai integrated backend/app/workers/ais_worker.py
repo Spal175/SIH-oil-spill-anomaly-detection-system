@@ -11,13 +11,14 @@ satellite imagery. Run independently during development with::
     python -m app.workers.ais_worker
 
 The worker reconnects automatically with exponential backoff and logs every
-connection / disconnection / error. It is NOT wired into FastAPI startup yet.
+connection / disconnection / error. When started from the FastAPI lifespan it
+also fans each persisted position out to dashboard clients over ``/ws/live``.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import websockets
 
@@ -27,6 +28,11 @@ from app.database.repositories import VesselRepository
 from app.workers.ais_message import ParsedPosition, parse_position_report
 
 logger = logging.getLogger(__name__)
+
+# Optional async hook that receives each parsed, persisted position as a
+# AISStream.io-style wire-format dict (used by the FastAPI lifespan to push it
+# to dashboard clients over the /ws/live WebSocket).
+BroadcastFn = Callable[[dict[str, Any]], Awaitable[None]]
 
 RECONNECT_BASE = 1.0
 RECONNECT_MAX = 30.0
@@ -40,10 +46,12 @@ class AISWorker:
         ws_url: Optional[str] = None,
         reconnect_base: float = RECONNECT_BASE,
         reconnect_max: float = RECONNECT_MAX,
+        broadcast: Optional[BroadcastFn] = None,
     ):
         self.ws_url = ws_url or settings.ais_ws_url
         self.reconnect_base = reconnect_base
         self.reconnect_max = reconnect_max
+        self._broadcast = broadcast
         self._session_factory = get_session_factory()
         self._stop = asyncio.Event()
         self._backoff = reconnect_base
@@ -80,6 +88,41 @@ class AISWorker:
                 heading=parsed.heading,
             )
             session.commit()
+        await self._emit(parsed)
+
+    @staticmethod
+    def _to_wire_message(parsed: ParsedPosition) -> dict[str, Any]:
+        """Rebuild the AISStream.io wire envelope the dashboard expects."""
+        return {
+            "MessageType": "PositionReport",
+            "MetaData": {
+                "MMSI": parsed.mmsi,
+                "ShipName": parsed.ship_name,
+                "ShipType": parsed.ship_type,
+                "Latitude": parsed.latitude,
+                "Longitude": parsed.longitude,
+            },
+            "Message": {
+                "PositionReport": {
+                    "UserID": parsed.mmsi,
+                    "Latitude": parsed.latitude,
+                    "Longitude": parsed.longitude,
+                    "Sog": parsed.speed,
+                    "Cog": parsed.course,
+                    "TrueHeading": parsed.heading,
+                    "Timestamp": int(parsed.timestamp_utc.timestamp()),
+                }
+            },
+        }
+
+    async def _emit(self, parsed: ParsedPosition) -> None:
+        """Push the position to live dashboard clients (no-op standalone)."""
+        if self._broadcast is None:
+            return
+        try:
+            await self._broadcast(self._to_wire_message(parsed))
+        except Exception:
+            logger.exception("broadcast failed for mmsi=%s", parsed.mmsi)
 
     async def _consume(self, ws) -> None:
         """Read messages until the connection closes."""
