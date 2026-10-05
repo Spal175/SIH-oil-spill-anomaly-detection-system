@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "837128956056",
+    "project_id": "oil-spill-alert-app",
+    "storage_bucket": "oil-spill-alert-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:837128956056:android:09cab8d42164123724c8ed",
+        "android_client_info": {
+          "package_name": "com.sih.oil_spill_alert_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDDDcpYam019LtoOg9QazPf86nUSbvQhlA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
